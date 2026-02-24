@@ -4,7 +4,7 @@
  * @see https://storybook.js.org/docs/configurations/default-config/
  */
 import { dirname } from "node:path";
-import * as sass from "sass";
+import * as sass from "sass-embedded";
 import type { StorybookConfig } from "@storybook/nextjs-vite";
 
 import { fileURLToPath } from "node:url"
