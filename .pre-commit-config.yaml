@@ -1,0 +1,145 @@
+# Digital Service Orchestra (DSO) plugin pre-commit configuration
+# These hooks enforce code quality and safety checks for the DSO plugin repository.
+fail_fast: true
+
+repos:
+  - repo: local
+    hooks:
+      # --- commit-stage hooks ---
+
+      - id: executable-guard
+        name: Executable Bit Guard (5s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-executable-guard.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        files: \.sh$
+
+      - id: portability-check
+        name: Portability Check (5s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh portability-check 5 "plugins/dso/scripts/check-portability.sh"
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: shim-refs-check
+        name: Shim Refs Check (5s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh shim-refs-check 5 "plugins/dso/scripts/check-shim-refs.sh"
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        files: ^plugins/dso/
+
+      - id: contract-schema-check
+        name: Contract Schema Check (5s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh contract-schema-check 5 "plugins/dso/scripts/check-contract-schemas.sh"
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        files: ^plugins/dso/docs/contracts/
+
+      - id: referential-integrity-check
+        name: Referential Integrity Check (10s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh referential-integrity-check 10 "plugins/dso/scripts/check-referential-integrity.sh"
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        files: ^plugins/dso/(skills|agents)/
+
+      - id: format-and-lint
+        name: Format + Lint - Ruff (15s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh format-and-lint 15 "ruff check plugins/dso/scripts/*.py tests/**/*.py && ruff format --check plugins/dso/scripts/*.py tests/**/*.py"
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-commit]
+
+      - id: isolation-check
+        name: Test Isolation Check (60s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh isolation-check 60 "STAGED_ONLY=true plugins/dso/scripts/check-test-isolation.sh"
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-commit]
+
+      # Test gate (timeout: 30s)
+      # Blocks commits when staged source files have associated tests that haven't passed.
+      # Runs BEFORE the review gate so developers fix test failures first.
+      # Timeout raised from 10s to 30s: compute-diff-hash.sh takes ~8s, leaving
+      # insufficient time for the test gate logic within the original 10s budget.
+      - id: pre-commit-test-gate
+        name: Test Gate (30s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh pre-commit-test-gate 30 "./plugins/dso/hooks/pre-commit-test-gate.sh"
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      # Plugin boundary check (timeout: 10s)
+      # Blocks commits that add files to plugins/dso/ that are not enumerated in the allowlist.
+      # Fail-open: missing allowlist exits 0 and prints a warning.
+      - id: plugin-boundary-check
+        name: Plugin Boundary Check (10s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh plugin-boundary-check 10 "./.claude/hooks/pre-commit/check-plugin-boundary.sh"
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        files: ^plugins/dso/
+
+      # Plugin self-reference check (timeout: 10s)
+      # Blocks any plugins/dso literal path inside files under plugins/dso/.
+      # Zero bypass — no annotation, no allowlist, no suppression mechanism.
+      - id: plugin-self-ref-check
+        name: Plugin Self-Ref Check (10s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh plugin-self-ref-check 10 "./.claude/hooks/pre-commit/check-plugin-self-ref.sh"
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        files: ^plugins/dso/
+
+      # Test quality gate (timeout: 15s)
+      # Scans staged test files for anti-patterns (e.g., source-file grep/cat
+      # instead of behavioral assertions) and blocks commits when detected.
+      # Configurable via test_quality.tool and test_quality.enabled in dso-config.conf.
+      - id: pre-commit-test-quality-gate
+        name: Test Quality Gate (15s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh pre-commit-test-quality-gate 15 "./plugins/dso/hooks/pre-commit-test-quality-gate.sh"
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        files: ^tests/
+
+
+      # Review gate (timeout: 30s)
+      # Blocks commits containing non-allowlisted files without a valid review-status.
+      # Since this repo IS the DSO plugin, we call the hook directly.
+      # Debug command: ./plugins/dso/hooks/pre-commit-review-gate.sh
+      - id: pre-commit-review-gate
+        name: Review Gate (30s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh pre-commit-review-gate 30 "./plugins/dso/hooks/pre-commit-review-gate.sh"
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      # Ticket gate (commit-msg stage, timeout: 10s)
+      # Blocks commits lacking a valid v3 ticket ID when non-allowlisted files are staged.
+      # Runs at commit-msg stage so the hook receives the commit message file ($1) from git.
+      - id: pre-commit-ticket-gate
+        name: Ticket Gate (10s timeout)
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh pre-commit-ticket-gate 10 "./plugins/dso/hooks/pre-commit-ticket-gate.sh"
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit-msg]
+
+      # --- push-stage hooks ---
+
+      - id: pre-push-lint
+        name: Pre-push format + lint check
+        language: system
+        entry: ./plugins/dso/scripts/pre-commit-wrapper.sh pre-push-lint 60 "ruff check plugins/dso/scripts/*.py tests/**/*.py && ruff format --check plugins/dso/scripts/*.py tests/**/*.py"
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
